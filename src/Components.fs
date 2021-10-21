@@ -4,13 +4,16 @@ open Feliz
 open Prim
 
 type Components =
-    static member cell cell =
-        let style =
+    static member cell x y cell =
+        let color =
             match cell.Kind with
-            | Passage -> [ style.backgroundColor "black" ]
-            | Wall -> [ style.backgroundColor "white" ]
+            | Passage -> "white"
+            | Wall -> "black"
 
-        Html.td [ prop.style style ]
+        let key = sprintf "%s-%d-%d" color x y
+
+        Html.td [ prop.key key
+                  prop.style [ style.backgroundColor color ] ]
 
     static member frame(grid: 'a Prim.Grid) =
         let rows =
@@ -20,12 +23,12 @@ type Components =
                         seq {
                             for col in 0 .. Grid.colCount grid - 1 do
                                 match grid |> Grid.tryGet col row with
-                                | Some cell -> yield cell
+                                | Some cell -> yield Components.cell col row cell
                                 | None -> ()
                         }
 
             }
-            |> Seq.map (fun row -> Html.tr [ row |> Seq.map Components.cell |> prop.children ])
+            |> Seq.map (fun cells -> Html.tr [ cells |> prop.children ])
 
         Html.table [ prop.style [ style.width (length.percent 100)
                                   style.height (length.percent 100) ]
