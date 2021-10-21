@@ -1,35 +1,40 @@
-﻿module Prim =
-    (*
-  prim
-  Start with a grid full of walls.
-  Pick a cell, mark it as part of the maze. Add the walls of the cell to the wall list.
-  While there are walls in the list:
-    Pick a random wall from the list. If only one of the cells that the wall divides is visited, then:
-      Make the wall a passage and mark the unvisited cell as part of the maze.
-      Add the neighboring walls of the cell to the wall list.
-    Remove the wall from the list.
-  *)
-
-    type CellKind =
-        | Wall
-        | Passage
-
-    type Cell = { Visited: bool; Kind: CellKind }
-
-    let randFloat () =
+﻿module Math =
+    let random () : float =
         (float (System.Random.Shared.Next()))
         / (float System.Int32.MaxValue)
 
-    let rand (max: int) =
-        max
-        |> float
-        |> ((*) (randFloat ()))
-        |> round
-        |> int
+module Grid =
+    type 'a Grid = private Grid of 'a array array
 
-    let randomCell (width, height) = rand (width - 1), rand (height - 1)
+    let create (cols: int) (rows: int) (initialValue: 'a) : 'a Grid =
+        Grid(Array.init rows (fun _ -> (Array.create cols initialValue)))
 
-    let neighbors (width, height) (x, y) =
+    let tryGet (col: int) (row: int) (Grid (grid): 'a Grid) : 'a option =
+        grid
+        |> Array.tryItem row
+        |> Option.bind (Array.tryItem col)
+
+    let colCount (Grid (rows): 'a Grid) =
+        rows
+        |> Array.tryHead
+        |> Option.map Array.length
+        |> Option.defaultValue 0
+
+    let rowCount (Grid (rows): 'a Grid) = rows |> Array.length
+
+    let set (col: int) (rowIndex: int) (value: 'a) ((Grid (rows) as grid): 'a Grid) : 'a Grid =
+        try
+            let row = Array.get rows rowIndex
+            Array.set row col value
+            grid
+        with
+        | _ -> grid
+
+    let dimensions grid = colCount grid, rowCount grid
+
+    let neighbors (x, y) grid =
+        let (height, width) = dimensions grid
+
         let inBounds (x', y') =
             x' >= 0 && x' < width && y' >= 0 && y' < height
 
@@ -40,6 +45,35 @@
         |> List.filter inBounds
         |> Set.ofList
 
+module Prim =
+
+    type 'a Grid = 'a Grid.Grid
+
+    (*
+      prim
+      Start with a grid full of cells surounded by walls.
+      Pick a cell, mark it as part of the maze. Add the walls of the cell to the wall list.
+      While there are walls in the list:
+        Pick a random wall from the list. If only one of the cells that the wall divides is visited, then:
+          Make the wall a passage and mark the unvisited cell as part of the maze.
+          Add the neighboring walls of the cell to the wall list.
+        Remove the wall from the list.
+      *)
+
+    type CellKind =
+        | Wall
+        | Passage
+
+    type Cell = { Visited: bool; Kind: CellKind }
+
+    let rand (max: int) =
+        max
+        |> float
+        |> ((*) (Math.random ()))
+        |> round
+        |> int
+
+    let randomCell (width, height) = rand (width - 1), rand (height - 1)
 
     let formatGrid grid =
         let formatCell cell =
@@ -50,50 +84,60 @@
         seq {
             yield "\x1b[H"
 
-            for row in 0 .. Array2D.length2 grid - 1 do
-                yield! seq { for col in 0 .. Array2D.length1 grid - 1 -> formatCell (Array2D.get grid col row) }
+            for row in 0 .. Grid.rowCount grid - 1 do
+                yield!
+                    seq {
+                        for col in 0 .. Grid.colCount grid - 1 ->
+                            grid
+                            |> Grid.tryGet col row
+                            |> Option.map formatCell
+                            |> Option.defaultValue ""
+                    }
 
                 yield "\n"
         }
         |> String.concat ""
 
-    let generate ((width, height) as dimensions) =
-        let unfold (grid, walls) =
-            let countVisted count (x, y) =
-                if (Array2D.get grid x y).Visited then
-                    count + 1
-                else
-                    count
+    let next (grid, walls) =
+        let countVisted count (x, y) =
+            match Grid.tryGet x y grid with
+            | Some ({ Visited = true }) -> count + 1
+            | _ -> count
 
-            if Set.isEmpty walls then
-                None
+        if Set.isEmpty walls then
+            None
+        else
+            let (x, y) as wall =
+                walls
+                |> Set.toList
+                |> List.item (rand ((Set.count walls) - 1))
+
+            let neighbors = Grid.neighbors wall grid
+
+            if neighbors |> Set.fold countVisted 0 |> ((=) 1) then
+                let grid =
+                    Grid.set x y { Kind = Passage; Visited = true } grid
+
+                Some(grid, (grid, walls |> Set.remove wall |> Set.union neighbors))
             else
-                let (x, y) as wall =
-                    walls
-                    |> Set.toList
-                    |> List.item (rand ((Set.count walls) - 1))
+                Some(grid, (grid, walls |> Set.remove wall))
 
-                let neighbors = neighbors dimensions wall
-
-                if neighbors |> Set.fold countVisted 0 |> ((=) 1) then
-                    Array2D.set grid x y { Kind = Passage; Visited = true }
-
-                    Some(grid, (grid, walls |> Set.remove wall |> Set.union neighbors))
-                else
-                    Some(grid, (grid, walls |> Set.remove wall))
-
-        let grid: Cell [,] =
-            Array2D.create width height { Visited = false; Kind = Wall }
+    let init ((width, height) as dimensions) =
+        let grid: Cell Grid =
+            Grid.create width height { Visited = false; Kind = Wall }
 
         let (x, y) as start = randomCell dimensions
 
-        let walls = neighbors dimensions start
+        let walls = Grid.neighbors start grid
 
-        Array2D.set grid x y { Visited = true; Kind = Wall }
+        Grid.set x y { Visited = true; Kind = Wall } grid, walls
 
-        Seq.unfold unfold (grid, walls)
+    let generate dimensions = Seq.unfold next <| init dimensions
 
+// (90, 90)
+// |> Prim.generate
+// |> Seq.iter (Prim.formatGrid >> printfn "%s")
 
-(30, 30)
-|> Prim.generate
-|> Seq.iter (Prim.formatGrid >> printfn "%s")
+Grid.create 3 3 true
+|> Grid.set 1 1 false
+|> printfn "%A"
