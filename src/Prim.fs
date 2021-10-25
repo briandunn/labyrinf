@@ -17,7 +17,7 @@ module Grid =
     type 'a Grid = private Grid of 'a array array
 
     let create (cols: int) (rows: int) (initialValue: 'a) : 'a Grid =
-        Grid(Array.init rows (fun _ -> (Array.create cols initialValue)))
+        Grid(Array.init rows (fun _ -> (Array.init cols (fun _ -> initialValue))))
 
     let tryGet (col: int) (row: int) (Grid (grid): 'a Grid) : 'a option =
         grid
@@ -32,47 +32,45 @@ module Grid =
 
     let rowCount (Grid (rows): 'a Grid) = rows |> Array.length
 
+    let cells ((Grid rows): 'a Grid): (int*int*'a) seq =
+        seq {
+            for y in 0..((Array.length rows) - 1) do
+                let row = Array.item y rows
+                for x in 0..((Array.length row) - 1) do  yield (x,y, Array.item x row)
+        }
+
     let set (col: int) (rowIndex: int) (value: 'a) ((Grid (rows) as grid): 'a Grid) : 'a Grid =
-        try
-            Array.set (Array.get rows rowIndex) col value
-            grid
-        with
-        | _ -> grid
+        Array.set (Array.get rows rowIndex) col value
+        grid
 
     let dimensions grid = colCount grid, rowCount grid
-
-    let neighbors (x, y) grid =
-        let (height, width) = dimensions grid
-
-        let inBounds (x', y') =
-            x' >= 0 && x' < width && y' >= 0 && y' < height
-
-        [ x - 1, y
-          x + 1, y
-          x, y - 1
-          x, y + 1 ]
-        |> List.filter inBounds
-        |> Set.ofList
 
 
 type 'a Grid = 'a Grid.Grid
 
 (*
   prim
-  Start with a grid full of cells surounded by walls.
-  Pick a cell, mark it as part of the maze. Add the walls of the cell to the wall list.
-  While there are walls in the list:
-    Pick a random wall from the list. If only one of the cells that the wall divides is visited, then:
-      Make the wall a passage and mark the unvisited cell as part of the maze.
-      Add the neighboring walls of the cell to the wall list.
-    Remove the wall from the list.
+
+  https://stackoverflow.com/questions/29739751/implementing-a-randomly-generated-maze-using-prims-algorithm
+
+  Start with a Grid full of Cells in state Blocked.
+  Pick a random Cell, set it to state Passage and Compute its frontier cells.
+  A frontier cell of a Cell is a cell with distance 2 in state Blocked and within the grid.
+  While the list of frontier cells is not empty:
+    Pick a random frontier cell from the list of frontier cells.
+    Neighbors of a frontier cell are all cells in distance 2 in state Passage.
+    Pick a random neighbor and connect the frontier cell with the neighbor by setting the cell in-between to state Passage.
+    Compute the frontier cells of the chosen frontier cell and add them to the frontier list.
+    Remove the chosen frontier cell from the list of frontier cells.
   *)
 
-type CellKind =
-    | Wall
-    | Passage
+type Cell =
+    | Wall = 0
+    | Passage = 1
 
-type Cell = { Visited: bool; Kind: CellKind }
+type Frontier = (int * int * Cell) Set
+type State = Cell Grid * Frontier
+type Next = (Cell Grid * State) option
 
 let rand (max: int) =
     max
@@ -83,61 +81,82 @@ let rand (max: int) =
 
 let randomCell (width, height) = rand (width - 1), rand (height - 1)
 
-let formatGrid grid =
-    let formatCell cell =
-        match cell.Kind, cell.Visited with
-        | Passage, _ -> "  "
-        | Wall, _ -> "\x1b[42m  \x1b[0m"
+let twoAway x y grid =
+    let fold acc (x', y') =
+        match Grid.tryGet x' y' grid with
+        | Some cell ->
+            Set.add (x', y', cell) acc
+        | None -> acc
 
-    seq {
-        yield "\x1b[H"
+    [ x - 2, y
+      x + 2, y
+      x, y - 2
+      x, y + 2 ]
+    |> List.fold fold Set.empty
 
-        for row in 0 .. Grid.rowCount grid - 1 do
-            yield!
-                seq {
-                    for col in 0 .. Grid.colCount grid - 1 ->
-                        grid
-                        |> Grid.tryGet col row
-                        |> Option.map formatCell
-                        |> Option.defaultValue ""
-                }
+let findNeighbors (x, y) =
+    twoAway x y
+    >> Set.filter
+        (function
+        | (_, _, Cell.Passage) -> true
+        | _ -> false)
 
-            yield "\n"
-    }
-    |> String.concat ""
+let findFrontiers (x, y) =
+    twoAway x y
+    >> Set.filter
+        (function
+        | (_, _, Cell.Wall) -> true
+        | _ -> false)
 
-let next (grid, walls) =
-    let countVisted count (x, y) =
-        match Grid.tryGet x y grid with
-        | Some ({ Visited = true }) -> count + 1
-        | _ -> count
+let randomSetMember set =
+    match Set.count set with
+    | n when n > 0 ->
+        let index = (rand (n - 1))
 
-    if Set.isEmpty walls then
-        None
-    else
-        let (x, y) as wall =
-            walls
-            |> Set.toList
-            |> List.item (rand ((Set.count walls) - 1))
+        set
+        |> Set.toList
+        |> List.item index
+        |> Some
+    | _ -> None
 
-        let neighbors = Grid.neighbors wall grid
+let between a b =
+    match a,b with
+    | (ax,ay), (bx,by) when ax = bx && ay = by + 2 -> ax, by + 1
+    | (ax,ay), (bx,by) when ax = bx && ay = by - 2 -> ax, by - 1
+    | (ax,ay), (bx,by) when ay = by && ax = bx + 2 -> bx + 1, ay
+    | (ax,ay), (bx,by) when ay = by && ax = bx - 2 -> bx - 1, ay
 
-        if neighbors |> Set.fold countVisted 0 |> ((=) 1) then
-            let grid =
-                Grid.set x y { Kind = Passage; Visited = true } grid
+let next ((grid, frontiers): State) : Next =
+    let map ((fx, fy, _) as frontier) =
 
-            Some(grid, (grid, walls |> Set.remove wall |> Set.union neighbors))
-        else
-            Some(grid, (grid, walls |> Set.remove wall))
+        let grid = match grid |> Grid.set fx fy Cell.Passage |> findNeighbors (fx, fy) |> randomSetMember with
+                   | Some (nx, ny, _) ->
+                       let (px, py) = between (fx, fy) (nx, ny)
+                       Grid.set px py Cell.Passage grid
+                   | None -> grid
 
-let init ((width, height) as dimensions) =
-    let grid: Cell Grid =
-        Grid.create width height { Visited = false; Kind = Wall }
+        grid,
+        (grid,
+         frontiers
+         |> Set.union (findFrontiers (fx, fy) grid) // must be returning previously visited frontiers some of the time
+         |> Set.remove frontier)
+
+    frontiers |> randomSetMember |> Option.map map
+
+let init ((width, height) as dimensions) : State =
+    let grid: Cell Grid = Grid.create width height Cell.Wall
 
     let (x, y) as start = randomCell dimensions
 
-    let walls = Grid.neighbors start grid
+    let frontiers = findFrontiers start grid
 
-    Grid.set x y { Visited = true; Kind = Wall } grid, walls
+    Grid.set x y Cell.Passage grid, frontiers
+
+let mapGrid (fn: Cell Grid -> 'a) : Next -> 'a option =
+    let map (grid, _state) = fn grid
+    Option.map map
 
 let generate dimensions = Seq.unfold next <| init dimensions
+
+do
+    generate (8,8) |> Seq.toList |> printfn "%A"

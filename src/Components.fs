@@ -1,38 +1,32 @@
 namespace Labyrinf
 
 open Feliz
+
 open Prim
 
 type Components =
-    static member cell x y cell =
+    static member cell x y isFront (cell: Prim.Cell) =
         let color =
-            match cell.Kind with
-            | Passage -> "white"
-            | Wall -> "black"
+            match cell, isFront with
+            | _, true -> "red"
+            | Prim.Cell.Passage, _ -> "white"
+            | Prim.Cell.Wall, _ -> "black"
 
         let key = sprintf "%s-%d-%d" color x y
 
-        Html.td [ prop.key key
-                  prop.style [ style.backgroundColor color ] ]
+        Html.div [prop.key key
+                  prop.style [ style.backgroundColor color
+                               style.padding 0
+                               style.borderCollapse.collapse ] ]
 
-    static member frame(grid: 'a Prim.Grid) =
-        let rows =
-            seq {
-                for row in 0 .. Grid.rowCount grid - 1 do
-                    yield
-                        seq {
-                            for col in 0 .. Grid.colCount grid - 1 do
-                                match grid |> Grid.tryGet col row with
-                                | Some cell -> yield Components.cell col row cell
-                                | None -> ()
-                        }
+    static member frame((grid: Prim.Cell Prim.Grid), (_,fronts)) =
+        let cells = grid |> Prim.Grid.cells |> Seq.map(fun ((x,y,c) as cell) -> Components.cell x y (Set.contains cell fronts) c)
 
-            }
-            |> Seq.map (fun cells -> Html.tr [ cells |> prop.children ])
-
-        Html.table [ prop.style [ style.width (length.percent 100)
-                                  style.height (length.percent 100) ]
-                     prop.children [ Html.tbody [ prop.children rows ] ] ]
+        Html.div   [ prop.style [ style.width (length.percent 100)
+                                  style.height (length.percent 100)
+                                  style.display.grid
+                                  style.gridTemplateColumns (Prim.Grid.colCount grid, length.fr 1) ]
+                     prop.children cells ]
 
 
     /// <summary>
@@ -42,37 +36,32 @@ type Components =
     [<ReactComponent>]
     static member Faze() =
         let (frame, setFrame) =
-            (50, 50)
+            (101, 61)
             |> Prim.init
             |> Prim.next
-            |> Feliz.React.useState
+            |> Feliz.React.useStateWithUpdater
 
 
-        let loop _ =
-            match frame with
-            | Some (_, state) ->
-                match state |> Prim.next with
-                | Some _ as state -> state |> setFrame
-                | _ -> ()
-            | _ -> ()
+        let rec loop _ =
+            let fn ((_, state) as lastFrame) =
+                match Prim.next state with
+                | None -> Some lastFrame
+                | next ->
+                    scheduleLoop ()
+                    next
 
-        let scheduleLoop () =
+            setFrame <| Option.bind fn
+
+        and scheduleLoop () =
             loop
             |> Browser.Dom.window.requestAnimationFrame
             |> ignore
 
-        let mapFrame fn =
-            frame
-            |> Option.map
-                (function
-                | (frame, _) -> fn frame)
-
-        let _ =
-            Feliz.React.useEffect scheduleLoop, [| frame |]
+        let _ = Feliz.React.useEffectOnce scheduleLoop
 
         Html.div [ prop.style [ style.width (length.percent 100)
                                 style.height (length.vh 100)
                                 style.backgroundColor "green" ]
-                   prop.children [ Components.frame
-                                   |> mapFrame
+                   prop.children [ frame
+                                   |> Option.map Components.frame
                                    |> Option.defaultValue Html.none ] ]
