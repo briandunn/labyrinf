@@ -32,11 +32,13 @@ module Grid =
 
     let rowCount (Grid (rows): 'a Grid) = rows |> Array.length
 
-    let cells ((Grid rows): 'a Grid): (int*int*'a) seq =
+    let cells ((Grid rows): 'a Grid) : (int * int * 'a) seq =
         seq {
-            for y in 0..((Array.length rows) - 1) do
+            for y in 0 .. ((Array.length rows) - 1) do
                 let row = Array.item y rows
-                for x in 0..((Array.length row) - 1) do  yield (x,y, Array.item x row)
+
+                for x in 0 .. ((Array.length row) - 1) do
+                    yield (x, y, Array.item x row)
         }
 
     let set (col: int) (rowIndex: int) (value: 'a) ((Grid (rows) as grid): 'a Grid) : 'a Grid =
@@ -84,8 +86,7 @@ let randomCell (width, height) = rand (width - 1), rand (height - 1)
 let twoAway x y grid =
     let fold acc (x', y') =
         match Grid.tryGet x' y' grid with
-        | Some cell ->
-            Set.add (x', y', cell) acc
+        | Some cell -> Set.add (x', y', cell) acc
         | None -> acc
 
     [ x - 2, y
@@ -96,15 +97,13 @@ let twoAway x y grid =
 
 let findNeighbors (x, y) =
     twoAway x y
-    >> Set.filter
-        (function
+    >> Set.filter (function
         | (_, _, Cell.Passage) -> true
         | _ -> false)
 
 let findFrontiers (x, y) =
     twoAway x y
-    >> Set.filter
-        (function
+    >> Set.filter (function
         | (_, _, Cell.Wall) -> true
         | _ -> false)
 
@@ -113,27 +112,29 @@ let randomSetMember set =
     | n when n > 0 ->
         let index = (rand (n - 1))
 
-        set
-        |> Set.toList
-        |> List.item index
-        |> Some
+        set |> Set.toList |> List.item index |> Some
     | _ -> None
 
 let between a b =
-    match a,b with
-    | (ax,ay), (bx,by) when ax = bx && ay = by + 2 -> ax, by + 1
-    | (ax,ay), (bx,by) when ax = bx && ay = by - 2 -> ax, by - 1
-    | (ax,ay), (bx,by) when ay = by && ax = bx + 2 -> bx + 1, ay
-    | (ax,ay), (bx,by) when ay = by && ax = bx - 2 -> bx - 1, ay
+    match a, b with
+    | (ax, ay), (bx, by) when ax = bx && ay = by + 2 -> ax, by + 1
+    | (ax, ay), (bx, by) when ax = bx && ay = by - 2 -> ax, by - 1
+    | (ax, ay), (bx, by) when ay = by && ax = bx + 2 -> bx + 1, ay
+    | (ax, ay), (bx, by) when ay = by && ax = bx - 2 -> bx - 1, ay
 
 let next ((grid, frontiers): State) : Next =
     let map ((fx, fy, _) as frontier) =
 
-        let grid = match grid |> Grid.set fx fy Cell.Passage |> findNeighbors (fx, fy) |> randomSetMember with
-                   | Some (nx, ny, _) ->
-                       let (px, py) = between (fx, fy) (nx, ny)
-                       Grid.set px py Cell.Passage grid
-                   | None -> grid
+        let grid =
+            match grid
+                  |> Grid.set fx fy Cell.Passage
+                  |> findNeighbors (fx, fy)
+                  |> randomSetMember
+                with
+            | Some (nx, ny, _) ->
+                let (px, py) = between (fx, fy) (nx, ny)
+                Grid.set px py Cell.Passage grid
+            | None -> grid
 
         grid,
         (grid,
@@ -157,6 +158,3 @@ let mapGrid (fn: Cell Grid -> 'a) : Next -> 'a option =
     Option.map map
 
 let generate dimensions = Seq.unfold next <| init dimensions
-
-do
-    generate (8,8) |> Seq.toList |> printfn "%A"
