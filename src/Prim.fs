@@ -47,6 +47,21 @@ module Grid =
 
     let dimensions grid = colCount grid, rowCount grid
 
+    let resize ((w, h): int * int) (newValue: 'a) ((Grid (rows) as grid): 'a Grid) =
+        let currentW = colCount grid
+        let currentH = rowCount grid
+        let clamp i = if i > 0 then i else 0
+
+        let map row =
+            Array.init (clamp (w - currentW)) (fun _ -> newValue)
+            |> Array.append row
+            |> Array.take w
+
+        Array.append
+            (Array.map map rows)
+            (Array.init (clamp (h - currentH)) (fun _ -> Array.init w (fun _ -> newValue)))
+        |> Array.take h
+        |> Grid
 
 type 'a Grid = 'a Grid.Grid
 
@@ -152,6 +167,14 @@ let init ((width, height) as dimensions) : State =
     let frontiers = findFrontiers start grid
 
     Grid.set x y Cell.Passage grid, frontiers
+
+let resize (newSize: int * int) ((grid, fronts): State) =
+    let grid = Grid.resize newSize Cell.Wall grid
+    let w = Grid.colCount grid
+    let h = Grid.rowCount grid
+    let inGrid (x, y, _) = x < w && y < h
+
+    (grid, Set.filter inGrid fronts)
 
 let mapGrid (fn: Cell Grid -> 'a) : Next -> 'a option =
     let map (grid, _state) = fn grid
