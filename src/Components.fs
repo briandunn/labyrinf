@@ -84,8 +84,8 @@ type Components =
     [<ReactComponent>]
     static member Faze() =
         let (frame, setFrame) =
-            let w = 10
-            let h = 10
+            let w = 20
+            let h = 20
 
             ((w, h), (w, h) |> Prim.init |> Prim.next)
             |> Feliz.React.useStateWithUpdater
@@ -111,7 +111,7 @@ type Components =
             |> Browser.Dom.window.requestAnimationFrame
             |> ignore
 
-        let renderFrame ({ Grid = grid }) =
+        let renderFrame grid =
             Components.Frame(cells = (Grid.cells grid), colCount = Grid.colCount grid)
 
         Feliz.React.useEffectOnce scheduleLoop |> ignore
@@ -123,5 +123,5 @@ type Components =
                    prop.children [ Components.Controls(state = (fst frame), onChange = setControlState)
                                    frame
                                    |> snd
-                                   |> Option.map (snd >> renderFrame)
+                                   |> Option.map (fst >> renderFrame)
                                    |> Option.defaultValue Html.none ] ]
