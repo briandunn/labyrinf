@@ -75,8 +75,10 @@ type Components =
             setFrame (fun (_dims, frame) -> (newDims, frame))
 
         let rec loop _ =
-            let fn dims ((_, state) as lastFrame) =
-                match state |> Prim.resize dims |> Prim.next with
+            let fn dims ((_, ({ Grid = grid } as state)) as lastFrame) =
+                match { state with Grid = grid |> Prim.resize dims }
+                      |> Prim.next
+                    with
                 | None -> Some lastFrame
                 | next ->
                     scheduleLoop ()
@@ -90,19 +92,16 @@ type Components =
             |> Browser.Dom.window.requestAnimationFrame
             |> ignore
 
-        let renderFrame (grid, (_, fronts)) =
+        let renderFrame grid =
             let toCell ((x, y, state) as cell) =
                 let color =
-                    match state, Set.contains cell fronts with
-                    | (_, true) -> color.steelBlue
-                    | (Cell.Passage, _) -> color.papayaWhip
-                    | (Cell.Wall, _) -> color.rebeccaPurple
-                    | _, _ -> color.teal
+                    match state with
+                    | Cell.Passage -> color.papayaWhip
+                    | Cell.Wall -> color.rebeccaPurple
 
                 { color = color; x = x; y = y }
 
-            let cells =
-                grid |> Prim.Grid.cells |> Seq.map toCell
+            let cells = grid |> Grid.cells |> Seq.map toCell
 
             Components.Frame(cells = cells, colCount = Grid.colCount grid)
 
@@ -115,5 +114,5 @@ type Components =
                    prop.children [ Components.Controls(state = (fst frame), onChange = setControlState)
                                    frame
                                    |> snd
-                                   |> Option.map renderFrame
+                                   |> Option.map (fst >> renderFrame)
                                    |> Option.defaultValue Html.none ] ]

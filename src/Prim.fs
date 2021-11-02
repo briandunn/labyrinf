@@ -63,6 +63,9 @@ module Grid =
         |> Array.take h
         |> Grid
 
+    let contains (value: 'a) (Grid (rows): 'a Grid) : bool =
+        Array.exists (Array.contains value) rows
+
 type 'a Grid = 'a Grid.Grid
 
 (*
@@ -81,13 +84,24 @@ type 'a Grid = 'a Grid.Grid
     Remove the chosen frontier cell from the list of frontier cells.
   *)
 
-type Cell =
-    | Wall = 0
-    | Passage = 1
+type Side =
+    | North = 0
+    | South = 1
+    | East = 2
+    | West = 3
 
-type Frontier = (int * int * Cell) Set
-type State = Cell Grid * Frontier
+type Cell = { Visited: bool; Walls: Side Set }
+
+type State = { Grid: Cell Grid; Current: int * int }
+
 type Next = (Cell Grid * State) option
+
+let allSides =
+    [ Side.North
+      Side.South
+      Side.East
+      Side.West ]
+    |> Set.ofList
 
 let rand (max: int) =
     max
@@ -96,7 +110,13 @@ let rand (max: int) =
     |> round
     |> int
 
-let randomCell (width, height) = rand (width - 1), rand (height - 1)
+let randomCell (width, height) =
+    let randEven n = (rand ((n - 1) / 2)) * 2
+    randEven width, randEven height
+
+let random (f: (int * int * 'a) -> bool) (grid: 'a Grid) =
+    let candidates = grid |> Grid.cells |> Seq.filter f
+    Seq.tryItem (rand (Seq.length candidates)) candidates
 
 let twoAway x y grid =
     let fold acc (x', y') =
@@ -110,17 +130,7 @@ let twoAway x y grid =
       x, y + 2 ]
     |> List.fold fold Set.empty
 
-let findNeighbors (x, y) =
-    twoAway x y
-    >> Set.filter (function
-        | (_, _, Cell.Passage) -> true
-        | _ -> false)
-
-let findFrontiers (x, y) =
-    twoAway x y
-    >> Set.filter (function
-        | (_, _, Cell.Wall) -> true
-        | _ -> false)
+let findNeighbors (x, y) = twoAway x y
 
 let randomSetMember set =
     match Set.count set with
@@ -130,6 +140,9 @@ let randomSetMember set =
         set |> Set.toList |> List.item index |> Some
     | _ -> None
 
+let pickRandomNeighbor coordinates =
+    findNeighbors coordinates >> randomSetMember
+
 let between a b =
     match a, b with
     | (ax, ay), (bx, by) when ax = bx && ay = by + 2 -> ax, by + 1
@@ -137,44 +150,39 @@ let between a b =
     | (ax, ay), (bx, by) when ay = by && ax = bx + 2 -> bx + 1, ay
     | (ax, ay), (bx, by) when ay = by && ax = bx - 2 -> bx - 1, ay
 
-let next ((grid, frontiers): State) : Next =
-    let map ((fx, fy, _) as frontier) =
+let isEven i = i % 2 = 0
 
-        let grid =
-            match grid
-                  |> Grid.set fx fy Cell.Passage
-                  |> findNeighbors (fx, fy)
-                  |> randomSetMember
-                with
-            | Some (nx, ny, _) ->
-                let (px, py) = between (fx, fy) (nx, ny)
-                Grid.set px py Cell.Passage grid
-            | None -> grid
+let removeWall a b grid = grid
 
-        grid,
-        (grid,
-         frontiers
-         |> Set.union (findFrontiers (fx, fy) grid) // must be returning previously visited frontiers some of the time
-         |> Set.remove frontier)
+let next { Grid = grid; Current = current } : Next =
+    if grid
+       |> Grid.cells
+       |> Seq.exists (fun (_, _, { Visited = visited }) -> not visited) then
+        grid
+        |> pickRandomNeighbor current
+        |> function
+            | Some (x, y, { Visited = false }) ->
 
-    frontiers |> randomSetMember |> Option.map map
+                let grid =
+                    grid
+                    |> removeWall current (x, y)
+                    |> Grid.update (x, y) (fun cell -> { cell with Visited = true })
+
+                Some(grid, { Grid = grid; Current = (x, y) })
+            | None -> None
+    else
+        None
 
 let init ((width, height) as dimensions) : State =
-    let grid: Cell Grid = Grid.create width height Cell.Wall
-
     let (x, y) as start = randomCell dimensions
 
-    let frontiers = findFrontiers start grid
+    { Grid =
+        Grid.create width height { Visited = false; Walls = allSides }
+        |> Grid.set x y { Visited = true; Walls = allSides }
+      Current = start }
 
-    Grid.set x y Cell.Passage grid, frontiers
-
-let resize (newSize: int * int) ((grid, fronts): State) =
-    let grid = Grid.resize newSize Cell.Wall grid
-    let w = Grid.colCount grid
-    let h = Grid.rowCount grid
-    let inGrid (x, y, _) = x < w && y < h
-
-    (grid, Set.filter inGrid fronts)
+let resize (newSize: int * int) =
+    Grid.resize newSize { Visited = false; Walls = allSides }
 
 let mapGrid (fn: Cell Grid -> 'a) : Next -> 'a option =
     let map (grid, _state) = fn grid
