@@ -121,7 +121,8 @@ let randomCell (width, height) =
 
 let random (f: (int * int * 'a) -> bool) (grid: 'a Grid) =
     let candidates = grid |> Grid.cells |> Seq.filter f
-    Seq.tryItem (rand (Seq.length candidates)) candidates
+    let (x, y, _ ) = Seq.item (rand (Seq.length candidates)) candidates
+    x,y
 
 let findNeighbors (x, y) grid =
     let fold acc (x', y') =
@@ -168,24 +169,28 @@ let removeWall a b grid =
     |> Option.map map
     |> Option.defaultValue grid
 
+let notVisited (_, _, { Visited = visited }) = not visited
+
 let next { Grid = grid; Current = current } : Next =
     if grid
        |> Grid.cells
-       |> Seq.exists (fun (_, _, { Visited = visited }) -> not visited) then
+       |> Seq.exists notVisited then
 
         grid
-        |> pickRandomNeighbor current
+        |> findNeighbors current
+        |> Set.filter notVisited
+        |> randomSetMember
         |> function
-            | Some (x, y, { Visited = false }) ->
+            | Some (x, y, _) ->
                 let grid =
                     grid
                     |> removeWall current (x, y)
                     |> Grid.update (x, y) (fun cell -> { cell with Visited = true })
 
                 Some(grid, { Grid = grid; Current = (x, y) })
-
-            | Some (x, y, { Visited = true }) -> Some(grid, { Grid = grid; Current = (x, y) })
-            | None -> None // not sure what to do here
+            | None -> 
+                // try picking a random passage with at least one unvisited neighbor
+                Some(grid, { Grid = grid; Current = random notVisited grid }) 
     else
         None
 
