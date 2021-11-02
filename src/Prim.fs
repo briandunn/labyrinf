@@ -97,7 +97,9 @@ type Side =
 
 type Cell = { Visited: bool; Walls: Side Set }
 
-type State = { Grid: Cell Grid; Current: int * int }
+type Walk = (int * int) list
+
+type State = { Grid: Cell Grid; Walk: Walk }
 
 type Next = (Cell Grid * State) option
 
@@ -115,14 +117,13 @@ let rand (max: int) =
     |> round
     |> int
 
-let randomCell (width, height) =
-    let randEven n = (rand ((n - 1) / 2)) * 2
-    randEven width, randEven height
-
 let random (f: (int * int * 'a) -> bool) (grid: 'a Grid) =
     let candidates = grid |> Grid.cells |> Seq.filter f
-    let (x, y, _ ) = Seq.item (rand (Seq.length candidates)) candidates
-    x,y
+
+    let (x, y, _) =
+        Seq.item (rand (Seq.length candidates)) candidates
+
+    x, y
 
 let findNeighbors (x, y) grid =
     let fold acc (x', y') =
@@ -171,36 +172,61 @@ let removeWall a b grid =
 
 let notVisited (_, _, { Visited = visited }) = not visited
 
-let next { Grid = grid; Current = current } : Next =
-    if grid
-       |> Grid.cells
-       |> Seq.exists notVisited then
+let resetWalk grid : Next =
 
-        grid
-        |> findNeighbors current
-        |> Set.filter notVisited
-        |> randomSetMember
-        |> function
-            | Some (x, y, _) ->
-                let grid =
-                    grid
-                    |> removeWall current (x, y)
-                    |> Grid.update (x, y) (fun cell -> { cell with Visited = true })
+    grid
+    |> Grid.cells
+    |> Seq.filter notVisited
+    |> Seq.tryHead
+    |> Option.map (fun (x, y, _) -> (grid, { Grid = grid; Walk = [ (x, y) ] }))
 
-                Some(grid, { Grid = grid; Current = (x, y) })
-            | None -> 
-                // try picking a random passage with at least one unvisited neighbor
-                Some(grid, { Grid = grid; Current = random notVisited grid }) 
+let markVisited cell = { cell with Visited = true }
+
+let next { Grid = grid; Walk = walk } : Next =
+    if grid |> Grid.cells |> Seq.exists notVisited then
+
+        match walk with
+        | head :: _ ->
+            let bind (x, y, _) =
+                grid
+                |> Grid.tryGet x y
+                |> Option.map (fun c -> (x, y, c))
+            grid
+            |> findNeighbors head
+            |> randomSetMember
+            |> Option.bind bind
+            |> function
+                | Some (x, y, { Visited = true }) ->
+                    printfn "%A" walk
+
+                    let fold grid (a,b) =
+                        grid
+                        |> Grid.update a (fun cell -> { cell with Visited = true })
+                        |> removeWall a b
+                    let grid = List.fold (fun grid pt -> Grid.update pt markVisited grid) grid ((x,y)::walk) 
+
+                    ((x,y)::walk) |> List.pairwise |> List.fold fold grid |> resetWalk
+                | Some (x, y, { Visited = false }) ->
+                    let walk = match walk |> List.skipWhile ((<>) (x,y)) with
+                                | [] ->
+                                    (x, y) :: walk
+                                | walk -> 
+                                     walk
+                    Some(grid, { Grid = grid; Walk = walk })
+                | None -> resetWalk grid
+        | _ -> None
+
     else
         None
 
 let init ((width, height) as dimensions) : State =
-    let (x, y) as start = randomCell dimensions
+
+    let grid =
+        Grid.create width height { Visited = false; Walls = allSides }
 
     { Grid =
-        Grid.create width height { Visited = false; Walls = allSides }
-        |> Grid.set x y { Visited = true; Walls = allSides }
-      Current = start }
+        grid |> Grid.update ((Grid.colCount grid) - 1, (Grid.rowCount grid) - 1) markVisited |> Grid.update (0,0) markVisited
+      Walk = [ 0, 0 ] }
 
 let resize (newSize: int * int) =
     Grid.resize newSize { Visited = false; Walls = allSides }

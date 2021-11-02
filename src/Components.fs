@@ -8,29 +8,40 @@ type ControlState = int * int
 
 type Components =
     [<ReactComponent>]
-    static member Cell(cell: (int * int * Cell), isCurrent: bool) =
-        let (x,y, {Visited = visited; Walls = walls}) = cell
+    static member Cell(cell: (int * int * Cell)) =
+        let (x, y, { Visited = visited; Walls = walls }) = cell
 
-        let key =
-            sprintf "%d-%d" x y
+        let key = sprintf "%d-%d" x y
 
-        let toStyle = (function
-                      | Side.North -> style.borderTopStyle
-                      | Side.South -> style.borderBottomStyle
-                      | Side.East -> style.borderRightStyle
-                      | Side.West -> style.borderLeftStyle)
-                      >> ((|>) borderStyle.solid)
+        let toStyle =
+            (function
+            | Side.North -> style.borderTopStyle
+            | Side.South -> style.borderBottomStyle
+            | Side.East -> style.borderRightStyle
+            | Side.West -> style.borderLeftStyle)
+            >> ((|>) borderStyle.solid)
 
-        let backgroundColor = style.backgroundColor (if visited then color.violet else color.yellowGreen )
-        let borderRadius = style.borderRadius (if isCurrent then (length.percent 50) else (length.percent 2) )
+        let backgroundColor =
+            style.backgroundColor (
+                if visited then
+                    color.violet
+                else
+                    color.yellowGreen
+            )
+
+        let borderRadius = style.borderRadius (length.percent 2)
 
         Html.div [ prop.key key
-                   prop.style (borderRadius::backgroundColor::(walls |> Set.toList |> List.map toStyle)) ]
+                   prop.style (
+                       borderRadius
+                       :: backgroundColor
+                          :: (walls |> Set.toList |> List.map toStyle)
+                   ) ]
 
     [<ReactComponent>]
-    static member Frame(colCount: int, current: (int * int), cells: (int * int * Cell) seq) =
+    static member Frame(colCount: int, cells: (int * int * Cell) seq) =
         let children =
-            Seq.map (fun ((x, y, _) as cell) -> Components.Cell(cell = cell, isCurrent = (current = (x,y)))) cells
+            Seq.map (fun ((x, y, _) as cell) -> Components.Cell(cell = cell)) cells
 
         Html.div [ prop.style [ style.width (length.percent 100)
                                 style.height (length.percent 100)
@@ -73,8 +84,8 @@ type Components =
     [<ReactComponent>]
     static member Faze() =
         let (frame, setFrame) =
-            let w = 50
-            let h = 50
+            let w = 10
+            let h = 10
 
             ((w, h), (w, h) |> Prim.init |> Prim.next)
             |> Feliz.React.useStateWithUpdater
@@ -100,8 +111,8 @@ type Components =
             |> Browser.Dom.window.requestAnimationFrame
             |> ignore
 
-        let renderFrame ({Grid = grid; Current = current}) =
-            Components.Frame(cells = (Grid.cells grid), current = current, colCount = Grid.colCount grid)
+        let renderFrame ({ Grid = grid }) =
+            Components.Frame(cells = (Grid.cells grid), colCount = Grid.colCount grid)
 
         Feliz.React.useEffectOnce scheduleLoop |> ignore
 
