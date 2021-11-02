@@ -45,6 +45,11 @@ module Grid =
         Array.set (Array.get rows rowIndex) col value
         grid
 
+    let update (col, row) (f: ('a -> 'a)) (grid: 'a Grid) : 'a Grid =
+        match tryGet col row grid with
+        | Some x -> set col row (f x) grid
+        | None -> grid
+
     let dimensions grid = colCount grid, rowCount grid
 
     let resize ((w, h): int * int) (newValue: 'a) ((Grid (rows) as grid): 'a Grid) =
@@ -118,19 +123,17 @@ let random (f: (int * int * 'a) -> bool) (grid: 'a Grid) =
     let candidates = grid |> Grid.cells |> Seq.filter f
     Seq.tryItem (rand (Seq.length candidates)) candidates
 
-let twoAway x y grid =
+let findNeighbors (x, y) grid =
     let fold acc (x', y') =
         match Grid.tryGet x' y' grid with
         | Some cell -> Set.add (x', y', cell) acc
         | None -> acc
 
-    [ x - 2, y
-      x + 2, y
-      x, y - 2
-      x, y + 2 ]
+    [ x - 1, y
+      x + 1, y
+      x, y - 1
+      x, y + 1 ]
     |> List.fold fold Set.empty
-
-let findNeighbors (x, y) = twoAway x y
 
 let randomSetMember set =
     match Set.count set with
@@ -143,33 +146,46 @@ let randomSetMember set =
 let pickRandomNeighbor coordinates =
     findNeighbors coordinates >> randomSetMember
 
-let between a b =
+let removeWall a b grid =
+    let removeWall wall ({ Walls = walls } as cell) =
+        { cell with Walls = Set.remove wall walls }
+
+    let map (removeFromA, removeFromB) =
+        grid
+        |> Grid.update a (removeWall removeFromA)
+        |> Grid.update b (removeWall removeFromB)
+
     match a, b with
-    | (ax, ay), (bx, by) when ax = bx && ay = by + 2 -> ax, by + 1
-    | (ax, ay), (bx, by) when ax = bx && ay = by - 2 -> ax, by - 1
-    | (ax, ay), (bx, by) when ay = by && ax = bx + 2 -> bx + 1, ay
-    | (ax, ay), (bx, by) when ay = by && ax = bx - 2 -> bx - 1, ay
-
-let isEven i = i % 2 = 0
-
-let removeWall a b grid = grid
+    | (ax, ay), (bx, by) when ax = bx && ay = by + 1 -> // a below b
+        Some(Side.North, Side.South)
+    | (ax, ay), (bx, by) when ax = bx && ay = by - 1 -> // a above b
+        Some(Side.South, Side.North)
+    | (ax, ay), (bx, by) when ay = by && ax = bx + 1 -> // a right of b
+        Some(Side.West, Side.East)
+    | (ax, ay), (bx, by) when ay = by && ax = bx - 1 -> // a left of b
+        Some(Side.East, Side.West)
+    | _ -> None
+    |> Option.map map
+    |> Option.defaultValue grid
 
 let next { Grid = grid; Current = current } : Next =
     if grid
        |> Grid.cells
        |> Seq.exists (fun (_, _, { Visited = visited }) -> not visited) then
+
         grid
         |> pickRandomNeighbor current
         |> function
             | Some (x, y, { Visited = false }) ->
-
                 let grid =
                     grid
                     |> removeWall current (x, y)
                     |> Grid.update (x, y) (fun cell -> { cell with Visited = true })
 
                 Some(grid, { Grid = grid; Current = (x, y) })
-            | None -> None
+
+            | Some (x, y, { Visited = true }) -> Some(grid, { Grid = grid; Current = (x, y) })
+            | None -> None // not sure what to do here
     else
         None
 
