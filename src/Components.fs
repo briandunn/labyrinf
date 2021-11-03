@@ -7,6 +7,8 @@ open Prim
 type ControlState = int * int
 
 type Components =
+    static member defaultDimensions = (10, 10)
+
     [<ReactComponent>]
     static member Cell(cell: (int * int * Cell)) =
         let (x, y, { Visited = visited; Walls = walls }) = cell
@@ -29,13 +31,14 @@ type Components =
                     color.yellowGreen
             )
 
-        let borderRadius = style.borderRadius (length.percent 2)
-
         Html.div [ prop.key key
+                //    prop.children [ Html.text key ]
                    prop.style (
-                       borderRadius
-                       :: backgroundColor
-                          :: (walls |> Set.toList |> List.map toStyle)
+                       (walls |> Set.toList |> List.map toStyle)
+                       @ [ backgroundColor
+                           style.display.flex
+                           style.alignItems.center
+                           style.justifyContent.center ]
                    ) ]
 
     [<ReactComponent>]
@@ -50,7 +53,7 @@ type Components =
                    prop.children children ]
 
     [<ReactComponent>]
-    static member Controls(state: ControlState, onChange: (ControlState -> unit)) =
+    static member Controls(state: ControlState, onChange: (ControlState -> unit), onReset: unit -> unit) =
         let (w, h) = state
 
         let input (label: string) (value: int) =
@@ -74,24 +77,23 @@ type Components =
                                 style.top (length.px 10)
                                 style.backgroundColor (color.rgba (0, 0, 0, 0.2))
                                 style.display.flex
-                                style.padding ((length.px 10), (length.px 10), (length.px 0))
+                                style.padding (length.px 10)
                                 style.flexDirection.column
                                 style.alignItems.flexEnd
                                 style.right (length.px 10) ]
                    prop.children [ input "h" h
-                                   input "w" w ] ]
+                                   input "w" w
+                                   Html.input [ prop.type'.submit
+                                                prop.value "reset"
+                                                prop.onClick (fun _ -> onReset ()) ] ] ]
 
     [<ReactComponent>]
     static member Faze() =
-        let (frame, setFrame) =
-            let w = 20
-            let h = 20
-
-            ((w, h), (w, h) |> Prim.init |> Prim.next)
-            |> Feliz.React.useStateWithUpdater
+        let (frame, setFrame) = Feliz.React.useStateWithUpdater None
 
         let setControlState newDims =
-            setFrame (fun (_dims, frame) -> (newDims, frame))
+            setFrame
+            <| Option.map (fun (_dims, frame) -> (newDims, frame))
 
         let rec loop _ =
             let fn dims ((_, ({ Grid = grid } as state)) as lastFrame) =
@@ -104,7 +106,7 @@ type Components =
                     next
 
             setFrame
-            <| fun (dims, next) -> dims, Option.bind (fn dims) next
+            <| Option.map (fun (dims, next) -> dims, Option.bind (fn dims) next)
 
         and scheduleLoop () =
             loop
@@ -114,14 +116,40 @@ type Components =
         let renderFrame grid =
             Components.Frame(cells = (Grid.cells grid), colCount = Grid.colCount grid)
 
-        Feliz.React.useEffectOnce scheduleLoop |> ignore
+        let onReset () =
+            setFrame (
+                (function
+                | Some ((w, h), _) -> (w, h)
+                | None -> Components.defaultDimensions)
+                >> (fun dims -> Some(dims, dims |> Prim.init |> Prim.next))
+            )
+
+            scheduleLoop ()
+
+
+        Feliz.React.useEffectOnce (fun () ->
+
+            setFrame
+            <| (fun _ ->
+                Some(
+                    Components.defaultDimensions,
+                    Components.defaultDimensions
+                    |> Prim.init
+                    |> Prim.next
+                ))
+
+            scheduleLoop ())
 
         Html.div [ prop.style [ style.width (length.percent 100)
                                 style.height (length.vh 100)
                                 style.position.relative
                                 style.backgroundColor <| color.seaGreen ]
-                   prop.children [ Components.Controls(state = (fst frame), onChange = setControlState)
+                   prop.children [ Components.Controls(
+                                       state = (Option.map fst frame |> Option.defaultValue (0, 0)),
+                                       onChange = setControlState,
+                                       onReset = onReset
+                                   )
                                    frame
-                                   |> snd
+                                   |> Option.bind (snd)
                                    |> Option.map (fst >> renderFrame)
                                    |> Option.defaultValue Html.none ] ]

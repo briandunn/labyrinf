@@ -71,8 +71,7 @@ module Grid =
     let contains (value: 'a) (Grid (rows): 'a Grid) : bool =
         Array.exists (Array.contains value) rows
 
-    let copy (Grid (rows): 'a Grid) : 'a Grid =
-        rows |> Array.map Array.copy |> Grid
+    let copy (Grid (rows): 'a Grid) : 'a Grid = rows |> Array.map Array.copy |> Grid
 
 type 'a Grid = 'a Grid.Grid
 
@@ -177,12 +176,14 @@ let notVisited (_, _, { Visited = visited }) = not visited
 
 let markVisited cell = { cell with Visited = true }
 
-let resetWalk grid : Next =
-    grid
-    |> Grid.cells
-    |> Seq.filter notVisited
-    |> Seq.tryHead
-    |> Option.map (fun (x, y, _) -> (grid, { Grid = grid; Walk = [ (x, y) ] }))
+let resetWalk: Cell Grid -> Walk =
+    let extractCoordinates (x, y, _) = x, y
+
+    Grid.cells
+    >> Seq.filter notVisited
+    >> Seq.tryHead
+    >> Option.map extractCoordinates
+    >> Option.toList
 
 let rec applyWalk ({ Grid = grid; Walk = walk } as state) =
     match walk with
@@ -193,7 +194,10 @@ let rec applyWalk ({ Grid = grid; Walk = walk } as state) =
                 |> Grid.update head markVisited
                 |> removeWall head neck
               Walk = neck :: tail }
-    | start :: _ -> applyWalk { Grid = Grid.update start markVisited grid; Walk = [] }
+    | start :: _ ->
+        applyWalk
+            { Grid = Grid.update start markVisited grid
+              Walk = [] }
     | [] -> state
 
 let eraseLoop head tail =
@@ -202,34 +206,33 @@ let eraseLoop head tail =
     | unlooped -> unlooped
 
 let stepLoopErasedWalk ({ Grid = grid; Walk = walk } as state) =
+    let mapNeighbor (x, y, { Visited = visited }) =
+        if visited then
+            applyWalk { state with Walk = (x, y) :: walk }
+        else
+            { state with Walk = eraseLoop (x, y) walk }
+
     walk
     |> List.tryHead
     |> Option.bind ((findNeighbors >> (|>) grid) >> randomSetMember)
-    |> function
-        | Some (x, y, { Visited = true }) ->
-            applyWalk { state with Walk = (x, y) :: walk }
-        | Some (x, y, { Visited = false }) ->
-            { state with Walk = eraseLoop (x, y) walk }
-        | None -> // shouldn't happen - every cell has at least 2 neighbors
+    |> Option.map mapNeighbor
+
+let next: State -> Next =
+    let next ({ Walk = walk; Grid = grid } as state) =
+        if List.isEmpty walk then
+            grid, { state with Walk = resetWalk grid }
+        else
+            (applyWalk { state with Grid = Grid.copy grid })
+                .Grid,
             state
 
-
-let next ({ Grid = grid } as state) : Next =
-    if grid |> Grid.cells |> Seq.exists notVisited then
-        match stepLoopErasedWalk state with
-        | { Walk = []; Grid = grid } -> resetWalk grid
-        | {Grid = grid} as state ->
-            Some((applyWalk { state with Grid = Grid.copy grid }).Grid, state)
-    else
-        None
+    stepLoopErasedWalk >> Option.map next
 
 let init (width, height) : State =
     let grid =
         Grid.create width height { Visited = false; Walls = allSides }
 
-    { Grid =
-        grid
-        |> Grid.update ((Grid.colCount grid) - 1, (Grid.rowCount grid) - 1) markVisited
+    { Grid = Grid.update ((Grid.colCount grid) - 1, (Grid.rowCount grid) - 1) markVisited grid
       Walk = [ 0, 0 ] }
 
 let resize (newSize: int * int) =
