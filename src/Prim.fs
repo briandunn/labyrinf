@@ -147,9 +147,6 @@ let randomSetMember set =
         set |> Set.toList |> List.item index |> Some
     | _ -> None
 
-let pickRandomNeighbor coordinates =
-    findNeighbors coordinates >> randomSetMember
-
 let removeWall a b grid =
     let removeWall wall ({ Walls = walls } as cell) =
         { cell with Walls = Set.remove wall walls }
@@ -212,10 +209,12 @@ let stepLoopErasedWalk ({ Grid = grid; Walk = walk } as state) =
         else
             { state with Walk = eraseLoop (x, y) walk }
 
-    walk
-    |> List.tryHead
-    |> Option.bind ((findNeighbors >> (|>) grid) >> randomSetMember)
-    |> Option.map mapNeighbor
+    let notAt (x1,y1) (x2,y2,_) = (x1, y1) <> (x2,y2)
+
+    (match walk with
+    | head::neck::_ -> grid |> findNeighbors head |> Set.filter (notAt neck)
+    | head::_ -> findNeighbors head grid
+    | [] -> Set.empty) |> randomSetMember |> Option.map mapNeighbor
 
 let next: State -> Next =
     let next ({ Walk = walk; Grid = grid } as state) =
