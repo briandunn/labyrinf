@@ -5,6 +5,7 @@
   <ItemGroup>
     <None Include="index.html" />
     <Compile Include="Extensions.fs" />
+    <Compile Include="Grid.fs" />
     <Compile Include="Prim.fs" />
     <Compile Include="Components.fs" />
     <Compile Include="Main.fs" />

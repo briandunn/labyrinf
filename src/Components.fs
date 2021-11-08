@@ -32,7 +32,7 @@ type Components =
             )
 
         Html.div [ prop.key key
-                //    prop.children [ Html.text key ]
+                   //    prop.children [ Html.text key ]
                    prop.style (
                        (walls |> Set.toList |> List.map toStyle)
                        @ [ backgroundColor

@@ -5,6 +5,19 @@ open System
 open Fable.Core
 open Fable.Core.JsInterop
 
+module Math =
+    open Fable.Core
+    // interface
+    type Math =
+        abstract random : unit -> float
+
+    [<Global>]
+    let Math: Math = jsNative
+
+    // emit
+    [<Emit("Math.random()")>]
+    let random () : float = jsNative
+
 [<RequireQualifiedAccess>]
 module StaticFile =
 
