@@ -2,7 +2,7 @@ namespace Labyrinf
 
 open Feliz
 
-open Prim
+open Wilson
 
 type ControlState = int * int
 
@@ -97,8 +97,8 @@ type Components =
 
         let rec loop _ =
             let fn dims ((_, ({ Grid = grid } as state)) as lastFrame) =
-                match { state with Grid = grid |> Prim.resize dims }
-                      |> Prim.next
+                match { state with Grid = grid |> Wilson.resize dims }
+                      |> Wilson.next
                     with
                 | None -> Some lastFrame
                 | next ->
@@ -121,7 +121,7 @@ type Components =
                 (function
                 | Some ((w, h), _) -> (w, h)
                 | None -> Components.defaultDimensions)
-                >> (fun dims -> Some(dims, dims |> Prim.init |> Prim.next))
+                >> (fun dims -> Some(dims, dims |> Wilson.init |> Wilson.next))
             )
 
             scheduleLoop ()
@@ -134,8 +134,8 @@ type Components =
                 Some(
                     Components.defaultDimensions,
                     Components.defaultDimensions
-                    |> Prim.init
-                    |> Prim.next
+                    |> Wilson.init
+                    |> Wilson.next
                 ))
 
             scheduleLoop ())
